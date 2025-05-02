@@ -108,6 +108,16 @@ static time_msecs_t mph_ctr;
 // 1549
 #define NISSAN_BCM_2 0x60D
 
+// MX5 NC
+#define CAN_MAZDA_MX5_NC_RPM_SPEED        0x201
+#define CAN_MAZDA_MX5_NC_203              0x203
+#define CAN_MAZDA_MX5_NC_215              0x215
+#define CAN_MAZDA_MX5_NC_231              0x231
+#define CAN_MAZDA_MX5_NC_240              0x240
+#define CAN_MAZDA_MX5_NC_420              0x420
+#define CAN_MAZDA_MX5_NC_620              0x620
+#define CAN_MAZDA_MX5_NC_630              0x630
+
 static uint8_t rpmcounter;
 static uint8_t seatbeltcnt;
 static uint8_t abscounter = 0xF0;
@@ -129,6 +139,7 @@ void canDashboardNissanVQ(CanCycle cycle);
 void canDashboardGenesisCoupe(CanCycle cycle);
 void canDashboardAim(CanCycle cycle);
 void canDashboardHaltech(CanCycle cycle);
+void canMazdaMX5NC(CanCycle cycle);
 
 void updateDash(CanCycle cycle) {
 
@@ -169,6 +180,9 @@ void updateDash(CanCycle cycle) {
 	case CAN_AIM_DASH:
 		canDashboardAim(cycle);
 		break;
+	case CAN_BUS_MAZDA_MX5_NC:
+		canMazdaMX5NC(cycle);
+		break;		
 	default:
 		firmwareError(ObdCode::OBD_PCM_Processor_Fault, "Nothing for canNbcType %s", getCan_nbc_e(engineConfiguration->canNbcType));
 		break;
@@ -1314,6 +1328,48 @@ void canDashboardAim(CanCycle cycle) {
 	// transmitStruct<Aim5fb>(0x5fb, false);
 	// transmitStruct<Aim5fc>(0x5fc, false);
 	// transmitStruct<Aim5fd>(0x5fd, false);
+}
+
+void canMazdaMX5NC(CanCycle cycle) {
+	if (cycle.isInterval(CI::_50ms)) {
+
+		{
+			CanTxMessage msg(CAN_MAZDA_MX5_NC_RPM_SPEED, 8);
+
+			float kph = Sensor::getOrZero(SensorType::VehicleSpeed);
+
+			msg.setShortValue(SWAP_UINT16(Sensor::getOrZero(SensorType::Rpm) * 4), 0);
+			msg.setShortValue(0xFFFF, 2);
+			msg.setShortValue(SWAP_UINT16((int )(100 * kph + 10000)), 4);
+			msg[6] = (int)(Sensor::getOrZero(SensorType::AcceleratorPedal) * 2); // PPS in 0.5% 0-200
+			msg[7] = 0xFF;
+		}
+
+		{
+			CanTxMessage msg(CAN_MAZDA_MX5_NC_420, 8);
+			auto clt = Sensor::get(SensorType::Clt);
+			msg[0] = (uint8_t)(clt.value_or(0) + 69); //temp gauge //~170 is red, ~165 last bar, 152 centre, 90 first bar, 92 second bar
+			// TODO: fixme!
+			//msg[1] = ((int16_t)(engine->engineState.vssEventCounter*(engineConfiguration->vehicleSpeedCoef*0.277*2.58))) & 0xff;
+			msg[2] = 0x00; // unknown
+			msg[3] = 0x00; //unknown
+			msg[4] = 0x01; //Oil Pressure (not really a gauge)
+			msg[5] = 0x00; //check engine light. Bit6 = On, Bit7 = Blinking.
+			msg.setBit(6,engine->outputChannels.checkEngine);
+			msg[6] = 0x00; //Coolant, oil and battery
+			if ((Sensor::getOrZero(SensorType::Rpm)>0) && (Sensor::get(SensorType::BatteryVoltage).value_or(VBAT_FALLBACK_VALUE)<13)) {
+				msg.setBit(6, 6); // battery light
+			}
+			if (!clt.Valid || clt.Value > 105) {
+				// coolant light, 101 - red zone, light means its get too hot
+				// Also turn on the light in case of sensor failure
+				msg.setBit(6, 1);
+			}
+			//oil pressure warning lamp bit is 7
+			msg[7] = 0x00; // Spanner Indicator - Currently unused.
+		}
+	}
+
 }
 
 #endif // EFI_CAN_SUPPORT
