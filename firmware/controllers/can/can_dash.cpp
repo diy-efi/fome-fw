@@ -109,14 +109,23 @@ static time_msecs_t mph_ctr;
 #define NISSAN_BCM_2 0x60D
 
 // MX5 NC
-#define CAN_MAZDA_MX5_NC_RPM_SPEED        0x201
-#define CAN_MAZDA_MX5_NC_203              0x203
-#define CAN_MAZDA_MX5_NC_215              0x215
-#define CAN_MAZDA_MX5_NC_231              0x231
-#define CAN_MAZDA_MX5_NC_240              0x240
-#define CAN_MAZDA_MX5_NC_420              0x420
-#define CAN_MAZDA_MX5_NC_620              0x620
-#define CAN_MAZDA_MX5_NC_630              0x630
+#define CAN_MAZDA_MX5_NC_201   0x201
+#define CAN_MAZDA_MX5_NC_215   0x215
+#define CAN_MAZDA_MX5_NC_231   0x231
+#define CAN_MAZDA_MX5_NC_240   0x240
+#define CAN_MAZDA_MX5_NC_420   0x420
+#define CAN_MAZDA_MX5_NC_4F0   0x4F0
+#define CAN_MAZDA_MX5_NC_4F1   0x4F1
+#define CAN_MAZDA_MX5_NC_4FF   0x4FF
+static uint8_t mazdaMx5Message4ffItterator = 0;
+static uint8_t mazdaMx5Message4ffDataSets[5][8] = 
+{
+    {0x10, 0x14, 0x24, 0x12, 0xFF, 0x00, 0x00, 0x00},  // Data set 1
+    {0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},  // Data set 2
+    {0x30, 0x44, 0x49, 0x53, 0x41, 0x42, 0x00, 0x00},  // Data set 3
+    {0x31, 0x4C, 0x45, 0x56, 0x49, 0x4E, 0x43, 0x00},  // Data set 4
+    {0x32, 0x4F, 0x4D, 0x50, 0x41, 0x52, 0x45, 0x00}   // Data set 5
+};
 
 static uint8_t rpmcounter;
 static uint8_t seatbeltcnt;
@@ -1334,7 +1343,7 @@ void canMazdaMX5NC(CanCycle cycle) {
 	if (cycle.isInterval(CI::_50ms)) {
 
 		{
-			CanTxMessage msg(CAN_MAZDA_MX5_NC_RPM_SPEED, 8);
+			CanTxMessage msg(CAN_MAZDA_MX5_NC_201, 8);
 
 			float kph = Sensor::getOrZero(SensorType::VehicleSpeed);
 
@@ -1345,12 +1354,52 @@ void canMazdaMX5NC(CanCycle cycle) {
 			msg[7] = 0xFF;
 		}
 
+
+		// Sent to prevent traction light
+		{
+			CanTxMessage msg(CAN_MAZDA_MX5_NC_215, 8);
+			msg[0] = 0x02;
+			msg[1] = 0x26;
+			msg[2] = 0x02;
+			msg[3] = 0x26;
+			msg[4] = 0x02;
+			msg[5] = 0x21;
+			msg[6] = 0x00;
+			msg[7] = 0x00;
+		}
+
+		// Required for PRHT to fuction 
+		{
+			CanTxMessage msg(CAN_MAZDA_MX5_NC_231, 8);
+			msg[0] = 0xFF; // Manual Transmition 
+			msg[1] = 0x04; 
+			msg[2] = 0xFF; // Manual Transmition 
+			msg[3] = 0xFF; // Manual Transmition 
+			msg[4] = 0x00;
+			msg[5] = 0x00;
+			msg[6] = 0x00;
+			msg[7] = 0x00;
+		}
+
+		// ?? 
+		{
+			CanTxMessage msg(CAN_MAZDA_MX5_NC_240, 8);
+			msg[0] = 0x04; // LOAD
+			auto clt = Sensor::get(SensorType::Clt);
+			msg[1] = (uint8_t)(clt.value_or(0) + 69); // ECT 
+			msg[2] = 0xBF; // Spark 
+			msg[3] = 0x7F; // TP1 
+			msg[4] = 0x3C; // IAT
+			msg[5] = 0x00;
+			msg[6] = 0x00;
+			msg[7] = 0x00;
+		}
+
 		{
 			CanTxMessage msg(CAN_MAZDA_MX5_NC_420, 8);
 			auto clt = Sensor::get(SensorType::Clt);
 			msg[0] = (uint8_t)(clt.value_or(0) + 69); //temp gauge //~170 is red, ~165 last bar, 152 centre, 90 first bar, 92 second bar
-			// TODO: fixme!
-			//msg[1] = ((int16_t)(engine->engineState.vssEventCounter*(engineConfiguration->vehicleSpeedCoef*0.277*2.58))) & 0xff;
+			msg[1] = 0x00; // VSS TODO.
 			msg[2] = 0x00; // unknown
 			msg[3] = 0x00; //unknown
 			msg[4] = 0x01; //Oil Pressure (not really a gauge)
@@ -1368,6 +1417,49 @@ void canMazdaMX5NC(CanCycle cycle) {
 			//oil pressure warning lamp bit is 7
 			msg[7] = 0x00; // Spanner Indicator - Currently unused.
 		}
+
+		{
+			CanTxMessage msg(CAN_MAZDA_MX5_NC_4F0, 8);
+			msg[0] = 0x14;
+			msg[1] = 0x40; 
+			msg[2] = 0x12;
+			msg[3] = 0x30; 
+			msg[4] = 0x02;
+			msg[5] = 0x00;
+			msg[6] = 0x00;
+			msg[7] = 0x00;
+		}
+
+		{
+			CanTxMessage msg(CAN_MAZDA_MX5_NC_4F1, 8);
+			msg[0] = 0x81;
+			msg[1] = 0x01; 
+			msg[2] = 0x74;
+			msg[3] = 0xFF; 
+			msg[4] = 0xFF;
+			msg[5] = 0x00;
+			msg[6] = 0x59;
+			msg[7] = 0x59;
+		}
+
+		{
+			CanTxMessage msg(CAN_MAZDA_MX5_NC_4FF, 8);
+
+			// Assign the data from the current data set based on iterator
+			for (int j = 0; j < 8; j++) {
+				msg[j] = mazdaMx5Message4ffDataSets[mazdaMx5Message4ffItterator][j];
+			}
+
+			// Increment the iterator
+			mazdaMx5Message4ffItterator++;
+
+			// Reset iterator if we've gone through all 5 messages
+			if (mazdaMx5Message4ffItterator >= 5) {
+				mazdaMx5Message4ffItterator = 0;
+			}
+
+		}
+
 	}
 
 }
